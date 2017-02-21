@@ -14,6 +14,7 @@ var organizationId = Fliplet.Env.get('organizationId');
 var currentDataSource;
 var currentDataSourceId;
 var currentEditor;
+var table;
 
 var dataSourceEntriesHasChanged = false;
 
@@ -93,34 +94,50 @@ function fetchCurrentDataSourceEntries() {
     } else {
       columns = _.union.apply(this, rows.map(function (row) { return Object.keys(row.data); }));
     }
-    
+
     columns = columns || [];
 
-    var tableHead = '<tr>' + columns.map(function (column) {
-      return '<td>' + column + '</td>';
-    }).join('') + '</tr>';
-
-    var tableBody = rows.map(function (row) {
-      return '<tr>' + columns.map(function (column) {
-        var value = row.data[column] || '';
-
-        if (typeof value === 'object') {
-          value = JSON.stringify(value);
-        } else if (typeof value === 'string' && value.indexOf('<') !== -1) {
-          value = $('<div>').text(value).html();
-        }
-
-        return '<td>' + value + '</td>';
-      }).join('') + '</tr>';
-    }).join('');
-
-    var tableTpl = '<table class="table">' + tableHead + tableBody + '</table>';
-
-    $sourceContents.removeClass('hidden');
-
     $tableContents = $('#entries > .table-entries');
-    $tableContents.html(tableTpl);
-    currentEditor = $tableContents.tinymce(tinyMCEConfiguration);
+    $tableContents.html('');
+
+    console.log(columns)
+
+    $tableContents.handsontable({
+      data: rows,
+      colHeaders: columns,
+      columns: _.map(columns, function (column) {
+        return { data: 'data.' + column };
+      }),
+      colHeaders: true
+    });
+
+    // table = new Handsontable(document.getElementById('example1'), settings1)
+
+    // var tableHead = '<tr>' + columns.map(function (column) {
+    //   return '<td>' + column + '</td>';
+    // }).join('') + '</tr>';
+
+    // var tableBody = rows.map(function (row) {
+    //   return '<tr data-entry-id="' + row.id + '">' + columns.map(function (column) {
+    //     var value = row.data[column] || '';
+
+    //     if (typeof value === 'object') {
+    //       value = JSON.stringify(value);
+    //     } else if (typeof value === 'string' && value.indexOf('<') !== -1) {
+    //       value = $('<div>').text(value).html();
+    //     }
+
+    //     return '<td>' + value + '</td>';
+    //   }).join('') + '</tr>';
+    // }).join('');
+
+    // var tableTpl = '<table class="table">' + tableHead + tableBody + '</table>';
+
+    // $sourceContents.removeClass('hidden');
+
+    // $tableContents = $('#entries > .table-entries');
+    // $tableContents.html(tableTpl);
+    // currentEditor = $tableContents.tinymce(tinyMCEConfiguration);
   });
 }
 

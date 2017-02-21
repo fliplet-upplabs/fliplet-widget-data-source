@@ -17,6 +17,8 @@
     "assets": [
       "vendor/handlebars.js",
       "vendor/jquery.tabletojson.js",
+      "vendor/handsontable.full.min.js",
+      "vendor/handsontable.full.min.css",
       "js/interface.js",
       "css/interface.css"
     ]
