@@ -26,16 +26,17 @@ var tinyMCEConfiguration = {
   valid_styles: {},
   plugins: "paste, table",
   gecko_spellcheck: true,
-  toolbar: false,
-  // contextmenu: "tableprops | cell row column",
-  // table_toolbar: "",
+  toolbar: 'undo redo | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol',
+  contextmenu: "tableprops | cell row column",
+  table_toolbar: "",
   object_resizing: false,
   paste_auto_cleanup_on_paste : false,
   paste_remove_styles: true,
   paste_remove_styles_if_webkit: true,
   setup: function (editor) {
-    editor.on('change', function(e) {
+    editor.on('change paste cut', function(e) {
       dataSourceEntriesHasChanged = true;
+      $('[data-save]').removeClass('disabled');
     });
   }
 };
@@ -53,6 +54,7 @@ function getDataSources() {
 
   $contents.removeClass('hidden');
   $sourceContents.addClass('hidden');
+  $('[data-save]').addClass('disabled');
   $contents.html(templates.dataSources());
   $dataSources = $('#data-sources > tbody');
 
@@ -62,15 +64,18 @@ function getDataSources() {
 }
 
 function fetchCurrentDataSourceDetails() {
-  Fliplet.DataSources.getById(currentDataSourceId).then(function (dataSource) {
+  return Fliplet.DataSources.getById(currentDataSourceId).then(function (dataSource) {
     $settings.find('[name="name"]').val(dataSource.name);
+    if (!dataSource.bundle) {
+      $('#bundle').prop('checked', true);
+    }
   });
 }
 
 function fetchCurrentDataSourceUsers() {
   var $usersContents = $('#roles');
 
-  Fliplet.DataSources.connect(currentDataSourceId).then(function (source) {
+  return Fliplet.DataSources.connect(currentDataSourceId).then(function (source) {
     source.getUsers().then(function (users) {
       $usersContents.html(templates.users({ users: users }));
     });
@@ -80,7 +85,7 @@ function fetchCurrentDataSourceUsers() {
 function fetchCurrentDataSourceEntries() {
   var columns;
 
-  Fliplet.DataSources.connect(currentDataSourceId).then(function (source) {
+  return Fliplet.DataSources.connect(currentDataSourceId).then(function (source) {
     currentDataSource = source;
     return Fliplet.DataSources.getById(currentDataSourceId).then(function (dataSource) {
       columns = dataSource.columns;
@@ -108,7 +113,10 @@ function fetchCurrentDataSourceEntries() {
       columns: _.map(columns, function (column) {
         return { data: 'data.' + column };
       }),
-      colHeaders: true
+      colHeaders: true,
+      afterChange: function (change, source) {
+        console.log('change', change, source)
+      }
     });
 
     // table = new Handsontable(document.getElementById('example1'), settings1)
@@ -138,7 +146,9 @@ function fetchCurrentDataSourceEntries() {
     // $tableContents = $('#entries > .table-entries');
     // $tableContents.html(tableTpl);
     // currentEditor = $tableContents.tinymce(tinyMCEConfiguration);
-  });
+  }).catch(function onFetchError(error) {
+    $('.table-entries').html('<br>Access denied. Please review your security settings if you want to access this data source.');
+  });;
 }
 
 Fliplet.Widget.onSaveRequest(function () {
@@ -168,7 +178,7 @@ function saveCurrentData() {
       }
       catch (e) {
         // Convert value to number when necessary
-        if (!isNaN(value)) {
+        if (!isNaN(value) && !value.match(/^(\+|0)/)) {
           row[column] = parseFloat(value, 10)
         } else {
           // Convert value to boolean
@@ -192,9 +202,24 @@ function renderDataSource(data) {
   $dataSources.append(templates.dataSource(data));
 }
 
+function windowResized() {
+  $('.tab-content').height($('body').height() - $('.tab-content').offset().top);
+  $('.table-entries').height($('.tab-content').height());
+  $('#contents:visible').height($('body').height() - $('#contents').offset().top);
+}
+
 // events
+$(window).on('resize', windowResized).trigger('resize');
 $('#app')
   .on('click', '[data-back]', function (event) {
+    event.preventDefault();
+
+    if (!dataSourceEntriesHasChanged || confirm('Are you sure? Changes that you made may not be saved.')) {
+      dataSourceEntriesHasChanged = false;
+      getDataSources();
+    }
+  })
+  .on('click', '[data-save]', function (event) {
     event.preventDefault();
 
     var saveData = dataSourceEntriesHasChanged ? saveCurrentData() : Promise.resolve();
@@ -210,16 +235,19 @@ $('#app')
     var name = $(this).closest('.data-source').find('.data-source-name').text();
 
     $contents.addClass('hidden');
-    $('.table-entries').html('Loading data...');
+    $('.table-entries').html('<br>Loading data...');
     $sourceContents.removeClass('hidden');
     $sourceContents.find('h1').html(name);
+    windowResized();
 
     // Input file temporarily disabled
     // $contents.append('<form>Import data: <input type="file" /></form><hr /><div id="entries"></div>');
 
-    fetchCurrentDataSourceEntries();
-    fetchCurrentDataSourceUsers();
-    fetchCurrentDataSourceDetails();
+    Promise.all([
+      fetchCurrentDataSourceEntries(),
+      fetchCurrentDataSourceUsers(),
+      fetchCurrentDataSourceDetails()
+    ]);
   })
   .on('click', '[data-delete-source]', function (event) {
     event.preventDefault();
@@ -295,20 +323,19 @@ $('#app')
   .on('submit', 'form[data-settings]', function (event) {
     event.preventDefault();
     var name = $settings.find('[name="name"]').val();
-
+    var bundle = !$('#bundle').is(':checked');
     if (!name) {
       return;
     }
 
-    Fliplet.API.request({
-      url: 'v1/data-sources/' + currentDataSourceId,
-      method: 'PUT',
-      data: {
-        name: name
-      }
-    }).then(function () {
-      $('[data-back]').click();
-    });
+    Fliplet.DataSources.update({
+      id: currentDataSourceId,
+      name: name,
+      bundle: bundle
+    })
+      .then(function () {
+        $('[data-back]').click();
+      });
   });
 
 // Fetch data sources when the provider starts
