@@ -7,6 +7,8 @@
   "provider_only": true,
   "interface": {
     "dependencies": [
+      "handlebars",
+      "handsontable",
       "lodash",
       "jquery",
       "bootstrap",
@@ -15,10 +17,6 @@
       "fliplet-studio-ui"
     ],
     "assets": [
-      "vendor/handlebars.js",
-      "vendor/jquery.tabletojson.js",
-      "vendor/handsontable.full.min.js",
-      "vendor/handsontable.full.min.css",
       "js/interface.js",
       "css/interface.css"
     ]
