@@ -1,3 +1,17 @@
+try {
+  throw new Error('Hello test again');
+} catch(e) {
+  Raven.captureException(e);
+}
+
+ENTRY_ID_LABEL = '_id';
+var data;
+var hot;
+var colHeaders;
+// Queue for operations to be sent to server
+var queue = [];
+
+
 var $contents = $('#contents');
 var $sourceContents = $('#source-contents');
 var $dataSources = $('#data-sources > tbody');
@@ -88,47 +102,218 @@ function fetchCurrentDataSourceEntries() {
   return Fliplet.DataSources.connect(currentDataSourceId).then(function (source) {
     currentDataSource = source;
     return Fliplet.DataSources.getById(currentDataSourceId).then(function (dataSource) {
-      columns = dataSource.columns;
+
+      colHeaders = dataSource.columns;
+      colHeaders.unshift(ENTRY_ID_LABEL);
 
       return source.find({});
     });
   }).then(function (rows) {
-    if (!rows || !rows.length) {
-      rows = [{data: { id: 1, name: 'Sample row 1'}}, {data: {id: 2, name: 'Sample row 2'}}];
-      columns = ['id', 'name'];
-    } else {
-      columns = _.union.apply(this, rows.map(function (row) { return Object.keys(row.data); }));
+    if (!rows) {
+      colHeaders = ['id', 'name'];
     }
 
-    columns = columns || [];
+    // Data has an object
+    data = rows.map(function(row) {
+      row.data[ENTRY_ID_LABEL] = row.id;
+      return row.data;
+    });
 
-    var tableHead = '<tr>' + columns.map(function (column) {
-      return '<td>' + column + '</td>';
-    }).join('') + '</tr>';
+    // Don't bind data to data source object
+    // Data as an array
+    data = data.map(function(row) {
+      return colHeaders.map(function(header){
+        return row[header];
+      });
+    });
 
-    var tableBody = rows.map(function (row) {
-      return '<tr>' + columns.map(function (column) {
-        var value = row.data[column] || '';
+    // Arrange order of table accordingly to order of columns
+    // Not used for now.
+    var columns = colHeaders.map(function(header) {
+      return { data: header };
+    });
 
-        if (typeof value === 'object') {
-          value = JSON.stringify(value);
-        } else if (typeof value === 'string' && value.indexOf('<') !== -1) {
-          value = $('<div>').text(value).html();
+    /*
+     * Render custom header. With an input field so we can edit the header
+     * Using this we need to make sure to update headers accordingly.
+     */
+    var customColHeaders = function (index) {
+      return colHeaders[index] === ENTRY_ID_LABEL
+        ? colHeaders[index]
+        : '<input class="input-header" type="text" value="' + colHeaders[index] + '" /> ⇵';
+    };
+
+    function updateColHeaders() {
+      colHeaders = getColHeaders();
+      hot.updateSettings({
+        colHeaders: customColHeaders
+      });
+    }
+
+    function getColHeaders() {
+      var headers = [];
+      $('.ht_clone_top .input-header').each(function(index, el) {
+        var header = $(el).val();
+        if (headers.indexOf(header) > -1) {
+          header = header + ' (1)';
         }
 
-        return '<td>' + value + '</td>';
-      }).join('') + '</tr>';
-    }).join('');
+        headers.push(header);
+      });
 
-    var tableTpl = '<table class="table">' + tableHead + tableBody + '</table>';
+      return headers;
+    }
 
-    $('.table-entries').css('visibility','visible');
+    function updateQueueRows(options) {
+      if (options.action === 'remove') {
+        // Remove any operation from this row
+        queue = queue
+          .filter(function (operation) {
+            return operation.row < index || operation.row > index + amount;
+          })
+          .map(function (operation) {
+            if (operation.row > index) {
+              operation.row = operation.row - amount;
+            }
 
-    $tableContents = $('#entries > .table-entries');
-    $tableContents.html(tableTpl);
-    currentEditor = $tableContents.tinymce(tinyMCEConfiguration);
+            return operation;
+          });
+      }
+    }
+
+    /*
+     * Might be needed to do other stuff here
+     */
+    function enqueueOperation(operation) {
+      /*
+       row:3
+       type: insert
+       data: blah
+
+       data: blah
+       row:3
+       type: insert
+
+       */
+      if (operation.type === 'update') {
+        var found = false;
+        for (var i = 0; i < queue.length; i++) {
+          if (queue[i].dataSourceEntryId === operation.dataSourceEntryId) {
+            found = true;
+            queue[i].data = $.extend(queue[i].data, operation.data);
+            queue[i].type = operation.type;
+          }
+        }
+      }
+
+      if (operation.type === 'insert') {
+        for (var i = 0; i < queue.length; i++) {
+          if (queue[i].row === operation.row) {
+            queue[i].data = $.extend(queue[i].data, operation.data);
+            queue[i].type = operation.type;
+            return;
+          }
+        }
+      }
+
+      if (operation.type == 'delete' && operation.dataSourceEntryId) {
+        for (var i = 0; i < queue.length; i++) {
+          if (queue[i].dataSourceEntryId === operation.dataSourceEntryId) {
+            delete queue[i].data;
+            queue[i].type = operation.type;
+            return;
+          }
+        }
+      }
+
+      if (operation.type == 'delete' && !operation.dataSourceEntryId) {
+        for (var i = 0; i < queue.length; i++) {
+          if (queue[i].row === operation.row) {
+            queue.splice(i,1);
+            return;
+          }
+        }
+      }
+
+      if (!found) {
+        queue.push(operation);
+      }
+    }
+
+    var options = {
+      data: data,
+      contextMenu: true,
+      // Always have one empty row at the end
+      minSpareRows: 2,
+      manualColumnMove: true,
+      columnSorting: true,
+      sortIndicator: true,
+      colHeaders: customColHeaders,
+      // columns: columns, We can't use this for now as this set max cols
+      rowHeaders: false,
+      // Hooks
+      afterColumnMove: function (columns, target) {
+        updateColHeaders();
+
+        console.log({colHeaders});
+      },
+      afterChange: function(changes, source) {
+        console.log({changes, source});
+        // If it was an edit or redo
+        if (['edit','UndoRedo.undo','CopyPaste.paste'].indexOf(source) > -1) {
+          // Create operations
+          changes.forEach(function(change) {
+            // Get entry id
+            var entryId = hot.getDataAtRowProp(change[0],colHeaders.indexOf(ENTRY_ID_LABEL));
+
+            var operation = {
+              row: change[0],
+              oldVal: change[1],
+              type: entryId ? 'update' : 'insert',
+              data: {
+                [colHeaders[change[1]]]: change[3]
+              }
+            };
+
+            if (entryId) {
+              operation.dataSourceEntryId = entryId;
+            }
+
+            // Push operation to queue
+            enqueueOperation(operation);
+          })
+        }
+      },
+      beforeRemoveRow: function (index, amount) {
+        console.log({index, amount});
+        // Get entry id
+        var entryId = hot.getDataAtRowProp(index,colHeaders.indexOf(ENTRY_ID_LABEL));
+        console.log({entryId});
+        // Create operation
+        var operation = {
+          type: 'delete',
+          dataSourceEntryId: entryId,
+          row: index
+        };
+        console.log({operation});
+        // Push operation to queue
+        enqueueOperation(operation);
+      },
+      afterCreateRow: function (index, amount) {
+        updateQueueRows({
+          index: index,
+          amount: amount,
+          action: 'create'
+        });
+        // Do nothing. We need to get data on change hook
+        console.log({index, amount});
+      }
+    };
+
+    hot = new Handsontable(document.getElementById('hot'), options);
   })
     .catch(function onFetchError(error) {
+      console.log(error);
       $('.table-entries').html('<br>Access denied. Please review your security settings if you want to access this data source.');
     });
 }
