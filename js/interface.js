@@ -1,9 +1,3 @@
-try {
-  throw new Error('Hello test again');
-} catch(e) {
-  Raven.captureException(e);
-}
-
 ENTRY_ID_LABEL = '_id';
 var data;
 var hot;
