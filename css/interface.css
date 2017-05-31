@@ -105,3 +105,45 @@ html {
     -webkit-transition: all 0.25s ease;
     transition: all 0.25s ease;
 }
+
+.container-fluid > .row {
+  max-width: initial;
+  width: auto;
+}
+
+.data-search {
+  text-align: right;
+  margin-bottom: 15px;
+}
+
+.update_console {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.update_console .refresh {
+  margin-bottom: 10px;
+}
+
+@media screen and (min-width: 640px) {
+  .update_console {
+    display: flex;
+    align-items: center;
+  }
+  .update_console .refresh {
+    margin-bottom: 0px;
+    margin-right: 15px;
+  }
+}
+
+.update_console [class*='col-xs-'] {
+  padding: 0;
+}
+
+#saved-data {
+  display: none;
+  position: fixed;
+  bottom: 15px;
+  right: 15px;
+  margin: 0;
+}

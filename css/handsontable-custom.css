@@ -1,0 +1,26 @@
+.handsontable tbody th.ht__highlight,
+.handsontable thead th.ht__highlight {
+  background-color: #00abd1 !important;
+  color: #ffffff !important;
+}
+
+.handsontable thead th.ht__highlight input {
+  color: #333333 !important;
+}
+
+.htCore td.searchResult {
+  color: #ffffff !important;
+  background: #00abd1 !important;
+}
+
+.handsontable .columnSorting.ascending::after,
+.handsontable .columnSorting.descending::after {
+  position: relative;
+  right: auto;
+  font-size: 10px;
+}
+
+.handsontable .ht__highlight .columnSorting.ascending::after,
+.handsontable .ht__highlight .columnSorting.descending::after {
+  color: #ffffff;
+}
