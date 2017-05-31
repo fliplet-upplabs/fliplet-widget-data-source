@@ -47,7 +47,44 @@
           <!-- Tab panes -->
           <div class="tab-content">
             <div role="tabpanel" class="tab-pane active" id="entries">
-              <div class="table-entries"></div>
+
+
+            <div class="container-fluid">
+                <div class="row">
+                  <div class="col-sm-6 col-sm-offset-6 col-sm-pull-6 sample-data">
+                    <div class="form-group">
+                      <label>Load with sample data</label>
+                      <label for="drop-down" class="select-proxy-display">
+                        <span class="icon fa fa-chevron-down"></span>
+                        <span class="select-value-proxy">-- Select a sample data</span>
+                        <select id="drop-down" data-label="select" class="hidden-select form-control">
+                          <option value="">-- Select a sample data</option>
+                          <option value="1">Blank</option>
+                          <option value="2">Sample Directory</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="col-sm-6">
+                    <div class="update_console clearfix">
+                      <div class="btn btn-secondary refresh"><span class="rf-text">Refresh</span> <i class="fa fa-refresh" aria-hidden="true"></i>
+                      </div>
+                      <div class="update-text">&nbsp;</div>
+                    </div>
+                  </div>
+                  <div class="col-sm-6">
+                    <div class="data-search form-inline">
+                      <div class="form-group">
+                        <input class="search form-control" type="search" id="search_field" placeholder="Filter" />
+                      </div>
+                      <button type="button" class="btn btn-default search-cancel">Clear filter</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div id="saved-data" class="alert alert-success" role="alert">&nbsp;</div>
+              <div id="hot"></div>
+
             </div>
             <div role="tabpanel" class="tab-pane" id="roles">
               <br />

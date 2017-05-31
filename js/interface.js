@@ -14,29 +14,6 @@ var dataSources;
 
 var dataSourceEntriesHasChanged = false;
 
-var tinyMCEConfiguration = {
-  menubar: false,
-  statusbar: false,
-  inline: true,
-  valid_elements: "tr,th,td[colspan|rowspan],thead,tbody,table,tfoot",
-  valid_styles: {},
-  plugins: "paste, table",
-  gecko_spellcheck: true,
-  toolbar: 'undo redo | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol',
-  contextmenu: "tableprops | cell row column",
-  table_toolbar: "",
-  object_resizing: false,
-  paste_auto_cleanup_on_paste: false,
-  paste_remove_styles: true,
-  paste_remove_styles_if_webkit: true,
-  setup: function(editor) {
-    editor.on('change paste cut', function(e) {
-      dataSourceEntriesHasChanged = true;
-      $('[data-save]').removeClass('disabled');
-    });
-  }
-};
-
 // Fetch all data sources
 function getDataSources() {
   if (tinymce.editors.length) {
@@ -88,6 +65,15 @@ function fetchCurrentDataSourceUsers() {
   });
 }
 
+function defaultValueRenderer(instance, td, row, col, prop, value, cellProperties) {
+  var escaped = Handsontable.helper.stringify(value);
+  td.innerHTML = escaped;
+  $(td).css({
+    'font-weight': 'bold',
+    'background-color': '#e4e4e4'
+  });
+}
+
 function fetchCurrentDataSourceEntries() {
   var columns;
 
@@ -99,52 +85,104 @@ function fetchCurrentDataSourceEntries() {
         return source.find({});
       });
     }).then(function(rows) {
+
       if (!rows || !rows.length) {
-        rows = [{
-          data: {
-            id: 1,
-            name: 'Sample row 1'
-          }
-        }, {
-          data: {
-            id: 2,
-            name: 'Sample row 2'
-          }
-        }];
-        columns = ['id', 'name'];
-      } else {
-        columns = _.union.apply(this, rows.map(function(row) {
-          return Object.keys(row.data);
-        }));
+        $('.sample-data').show();
       }
+
+      rows = rows.map(function (entry) {
+        var data = entry.data;
+        var row = columns.map(function(column) {
+          return data[column] || '';
+        });
+        row.unshift(entry.id);
+        return row;
+      });
+
+      columns.unshift('_id');
+      rows.unshift(columns);
 
       columns = columns || [];
 
-      var tableHead = '<tr>' + columns.map(function(column) {
-        return '<td>' + column + '</td>';
-      }).join('') + '</tr>';
-
-      var tableBody = rows.map(function(row) {
-        return '<tr>' + columns.map(function(column) {
-          var value = row.data[column] || '';
-
-          if (typeof value === 'object') {
-            value = JSON.stringify(value);
-          } else if (typeof value === 'string' && value.indexOf('<') !== -1) {
-            value = $('<div>').text(value).html();
-          }
-
-          return '<td>' + value + '</td>';
-        }).join('') + '</tr>';
-      }).join('');
-
-      var tableTpl = '<table class="table">' + tableHead + tableBody + '</table>';
-
       $('.table-entries').css('visibility', 'visible');
 
-      $tableContents = $('#entries > .table-entries');
-      $tableContents.html(tableTpl);
-      currentEditor = $tableContents.tinymce(tinyMCEConfiguration);
+      // Cloned saved data for other uses
+      var cloneData;
+
+      var hot;
+      var autosaveNotification;
+      var rowIndexToHide = [];
+      var cellChanges = [];
+      var changedCellColour = '#fff9c6';
+      var hotElement = document.querySelector('#hot');
+      var searchField = document.getElementById('search_field');
+      var savedConsole = $('#saved-data');
+      var hotElementContainer = hotElement.parentNode;
+
+      var mode = ''; // TODO: Check what's this
+
+      var hotSettings = {
+        data: rows,
+        contextMenu: ['row_above', 'row_below', 'col_left', 'col_right', 'remove_row', 'remove_col', 'undo', 'redo'],
+        rowHeaders: true,
+        colHeaders: true,
+        minSpareRows: 0,
+        minSpareCols: 0,
+        fixedRowsTop: 1,
+        autoWrapRow: true,
+        stretchH: 'all',
+        columnSorting: false,
+        manualRowResize: true,
+        manualColumnResize: true,
+        manualRowMove: false,
+        manualColumnMove: false,
+        fillHandle: false,
+        autoColumnSize: {
+          samplingRatio: 23
+        },
+        hiddenRows: {
+          indicators: true
+        },
+        cells: function(row, col, prop) {
+          var cellProperties = {};
+          if (row === 0) {
+            cellProperties.renderer = defaultValueRenderer;
+          }
+          return cellProperties;
+        },
+        beforeChange: function(changes, source) {
+          if (mode !== 'noChanges' && (!changes || changes[0][0] === 0)) {
+            alert('New data is available. You will change multiple rows of data.\nRefresh the data.');
+            return false;
+          }
+        },
+        beforePaste: function(data, coords) {
+          if (mode !== 'noChanges' && (coords[0].startRow != coords[0].endRow || data.length > 1)) {
+            alert('New data is available. You will change multiple rows of data.\nRefresh the data.');
+            return false;
+          }
+        },
+        afterChange: function(changes, source) {
+          if (!changes || changes[0][3] === '') {
+            return false;
+          }
+
+          var savedData = hot.getData();
+          dataObject = savedData.slice(0);
+
+          clearTimeout(autosaveNotification);
+          savedConsole.html('Autosaved (' + changes.length + ' ' + 'cell' + (changes.length > 1 ? 's' : '') + ')');
+          savedConsole.fadeIn(250);
+          autosaveNotification = setTimeout(function() {
+            savedConsole.fadeOut(100);
+            savedConsole.html('\xa0');
+          }, 3000);
+        }
+      };
+
+      // INIT
+      hot = new Handsontable(hotElement, hotSettings);
+
     })
     .catch(function onFetchError(error) {
       $('.table-entries').html('<br>Access denied. Please review your security settings if you want to access this data source.');
@@ -152,49 +190,9 @@ function fetchCurrentDataSourceEntries() {
 }
 
 Fliplet.Widget.onSaveRequest(function() {
-  saveCurrentData().then(Fliplet.Widget.complete);
+  Fliplet.Widget.complete;
 });
 
-function saveCurrentData() {
-  if (!tinymce.editors.length) {
-    return Promise.resolve();
-  }
-
-  var $table = $('<div>' + tinymce.editors[0].getContent() + '</div>');
-
-  // Append the table to the dom so "tableToJSON" works fine
-  $table.css('visibility', 'hidden');
-  $('body').append($table)
-
-  var tableRows = $table.find('table').tableToJSON();
-
-  tableRows.forEach(function(row) {
-    Object.keys(row).forEach(function(column) {
-      var value = row[column];
-
-      try {
-        // Convert value to JSON data when necessary (arrays and objects)
-        row[column] = JSON.parse(value);
-      } catch (e) {
-        // Convert value to number when necessary
-        if (!isNaN(value) && !value.match(/^(\+|0)/)) {
-          row[column] = parseFloat(value, 10)
-        } else {
-          // Convert value to boolean
-          if (value === 'true') {
-            value = true;
-          } else if (value === 'false') {
-            value = false;
-          }
-        }
-      }
-    });
-  });
-
-  $('.table-entries').html('Saving...');
-
-  return currentDataSource.replaceWith(tableRows);
-}
 
 // Append a data source to the DOM
 function renderDataSource(data) {
@@ -212,6 +210,19 @@ function windowResized() {
 // events
 $(window).on('resize', windowResized).trigger('resize');
 $('#app')
+  .on('change', '.hidden-select', function() {
+    var selectedValue = $(this).val();
+    var selectedText = $(this).find('option:selected').text();
+    $(this).parents('.select-proxy-display').find('.select-value-proxy').html(selectedText);
+
+    if (selectedValue === '1') {
+      hot.loadData(blankData);
+    } else if (selectedValue === '2') {
+      hot.loadData(dataDirectory);
+    } else {
+      hot.loadData(dataObject);
+    }
+  })
   .on('click', '[data-back]', function(event) {
     event.preventDefault();
 
@@ -219,16 +230,6 @@ $('#app')
       dataSourceEntriesHasChanged = false;
       getDataSources();
     }
-  })
-  .on('click', '[data-save]', function(event) {
-    event.preventDefault();
-
-    var saveData = dataSourceEntriesHasChanged ? saveCurrentData() : Promise.resolve();
-    dataSourceEntriesHasChanged = false;
-
-    saveData.then(function() {
-      getDataSources();
-    })
   })
   .on('click', '[data-browse-source]', function(event) {
     event.preventDefault();
