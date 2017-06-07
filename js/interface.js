@@ -7,12 +7,20 @@ var $settings = $('form[data-settings]');
 var $noResults = $('.no-results-found');
 
 var organizationId = Fliplet.Env.get('organizationId');
-var currentDataSource;
+var connection;
 var currentDataSourceId;
 var currentEditor;
 var dataSources;
 
 var dataSourceEntriesHasChanged = false;
+
+// Entries
+var updateEntriesInterval = 3000;  // Initially set to 3 seconds and dobe it on every get entries without new results
+// Queu to hold operations to be sent to server. The key is the row index
+var queue = {};                    
+
+
+
 
 // Fetch all data sources
 function getDataSources() {
@@ -74,11 +82,28 @@ function defaultValueRenderer(instance, td, row, col, prop, value, cellPropertie
   });
 }
 
+/**
+ * This will get new entries if the updated at date is newer than what we already have.
+ * TODO: Get only new/deleted entries
+ */
+function getNewEntries() {
+  return Fliplet.DataSources.getById(currentDataSourceId).then(function(dataSource) {
+    columns = dataSource.columns;
+    return source.find({});
+  });
+
+}
+
+function dataSourceUpated () {
+
+}
+
 function fetchCurrentDataSourceEntries() {
   var columns;
+  var rows = [];
 
   return Fliplet.DataSources.connect(currentDataSourceId).then(function(source) {
-      currentDataSource = source;
+      connection = source;
       return Fliplet.DataSources.getById(currentDataSourceId).then(function(dataSource) {
         columns = dataSource.columns;
 
@@ -91,9 +116,9 @@ function fetchCurrentDataSourceEntries() {
       }
 
       rows = rows.map(function (entry) {
-        var data = entry.data;
+        var data = entry.data || {};
         var row = columns.map(function(column) {
-          return data[column] || '';
+          return data.hasOwnProperty(column) ? data[column] : '';
         });
         row.unshift(entry.id);
         return row;
@@ -150,20 +175,31 @@ function fetchCurrentDataSourceEntries() {
           }
           return cellProperties;
         },
-        beforeChange: function(changes, source) {
-          if (mode !== 'noChanges' && (!changes || changes[0][0] === 0)) {
-            alert('New data is available. You will change multiple rows of data.\nRefresh the data.');
-            return false;
-          }
-        },
         beforePaste: function(data, coords) {
+          /* TODO: check new data before paste.
+
           if (mode !== 'noChanges' && (coords[0].startRow != coords[0].endRow || data.length > 1)) {
             alert('New data is available. You will change multiple rows of data.\nRefresh the data.');
             return false;
           }
+
+          */
+          
         },
-        afterChange: function(changes, source) {
-          if (!changes || changes[0][3] === '') {
+        beforeChange: function(changes, source) {
+          console.log('beforeChange');
+          console.log({changes, source});
+
+          /** HUGO CODE
+           * 
+           * 
+           * 
+          if (mode !== 'noChanges' && (!changes || changes[0][0] === 0)) {
+            alert('New data is available. You will change multiple rows of data.\nRefresh the data.');
+            return false;
+          }
+
+if (!changes || changes[0][3] === '') {
             return false;
           }
 
@@ -177,7 +213,111 @@ function fetchCurrentDataSourceEntries() {
             savedConsole.fadeOut(100);
             savedConsole.html('\xa0');
           }, 3000);
-        }
+
+           */
+          
+
+          // If it was an edit or redo or a delete content..
+          if (['edit','UndoRedo.undo','CopyPaste.paste'].indexOf(source) > -1 || !source) {
+            // Create operations
+            changes.forEach(function(change) {
+              var row = change[0];
+
+              // Let's check if it is column change
+              if (row === 0) {
+                columns = hot.getSourceDataAtRow(0);
+                return Fliplet.DataSources.update(currentDataSourceId, { columns: columns})
+                  .then(function() {
+                    // TODO: UI info about columns updated
+                  });
+              }
+
+              var column = change[1];
+              // Get entry id
+              var entryId = hot.getDataAtCell(row,0);
+              var columnName = hot.getDataAtCell(0, column);
+              var data = {};
+              data[columnName] = change[3];
+
+              if (queue[row]) {
+                _.assign(queue[row].data, data)
+              } else {
+                queue[row] = {
+                  type: entryId ? 'update' : 'insert',
+                  data: data,
+                  row: row    // Used only here on the client
+                };
+
+                if (entryId) {
+                  queue[row].dataSourceEntryId = entryId;
+                }
+              }
+
+            })
+
+            var queries = Object.keys(queue).map(function (key) { 
+              return queue[key]; 
+            });
+            connection.query(queries).then(function (result) {
+              console.log('Executed:');
+              console.log({ result });
+              
+              // For insert operations we need to set the entry id on the table
+              queries.forEach(function(query, index) {
+                if (query.type !== 'insert') {
+                  return;
+                }
+
+                var id = result[index].entry.id
+                hot.setDataAtCell(query.row, 0, id, 'afterAPIChange');
+              });
+
+              // Clean the queue 
+              queue = {};
+            });
+          }
+        },
+        beforeRemoveRow: function (index, amount) {
+          var removeQueue = [];
+          var entryId;
+          console.log({index, amount});
+          // Get entry id
+          for (var i = 0; i < amount; i++) {
+            entryId = hot.getDataAtCell(index + i,0);
+            console.log({ entryId });
+            // Create operation
+            var operation = {
+              type: 'delete',
+              dataSourceEntryId: entryId
+            }
+            console.log({ operation });
+            // Push operation to queue
+            removeQueue.push(operation);
+          }
+          
+
+          connection.query(removeQueue).then(function (result) {
+            console.log('QUERIED API');
+            console.log({ result });
+            
+          });
+        },
+        beforeCreateRow: function (index, amount) {
+          // Do nothing. We need to get data on change hook
+          console.log({index, amount});
+        },
+        beforeCreateCol: function (index, amount, source) {
+          console.log('beforeCreateCol');
+          // TODO: Maybe automatically create column name if no one is there yet
+          // Do nothing. We need to get column name on change hook
+          // Has we need to get the column name on change
+        },
+        afterCreateCol: function (index, amount, source) {
+          console.log('afterCreateCol');
+          // TODO: Maybe automatically create column name if no one is there yet
+          // Do nothing. We need to get column name on change hook
+          // Has we need to get the column name on change
+        },
       };
 
       // INIT
@@ -301,7 +441,7 @@ $('#app')
 
     formData.append('file', file);
 
-    currentDataSource.import(formData).then(function(files) {
+    connection.import(formData).then(function(files) {
       $input.val('');
       fetchCurrentDataSourceEntries();
     });
